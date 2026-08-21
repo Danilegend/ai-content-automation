@@ -1,0 +1,27 @@
+topics:
+  - name: Linux
+    category: IT Support
+
+  - name: Networking
+    category: Networking
+
+  - name: Python
+    category: Programming
+
+  - name: Cybersecurity
+    category: Security
+
+  - name: Azure
+    category: Cloud
+
+  - name: Git and GitHub
+    category: DevOps
+
+  - name: JavaScript
+    category: Programming
+
+  - name: IT Support
+    category: Career
+
+  - name: AI for IT
+    category: Artificial Intelligence
