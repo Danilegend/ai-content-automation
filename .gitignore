@@ -24,5 +24,3 @@ logs/*.log
 
 # Generated content
 content/drafts/*
-content/approved/*
-content/published/*
