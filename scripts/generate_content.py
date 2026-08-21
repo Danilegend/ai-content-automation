@@ -94,6 +94,8 @@ Return only the post text.
 
 
 def save_post(topic, category, post):
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
     today = datetime.now().strftime("%Y-%m-%d")
     slug = slugify(topic)
 
