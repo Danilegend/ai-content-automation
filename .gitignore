@@ -21,3 +21,8 @@ logs/*.log
 .DS_Store
 .vscode/
 .idea/
+
+# Generated content
+content/drafts/*
+content/approved/*
+content/published/*
