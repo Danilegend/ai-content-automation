@@ -106,6 +106,7 @@ title: "AI-generated post about {topic}"
 topic: "{topic}"
 category: "{category}"
 status: "draft"
+approval: "pending"
 publish: false
 platforms:
   - linkedin

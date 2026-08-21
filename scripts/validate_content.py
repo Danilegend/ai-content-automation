@@ -10,6 +10,7 @@ REQUIRED_FIELDS = [
     "topic",
     "category",
     "status",
+    "approval",
     "publish",
     "platforms",
     "tags",
@@ -59,6 +60,9 @@ def validate(path: Path):
 
     if metadata.get("status") != "draft":
         errors.append("New content must have status: draft")
+
+    if metadata.get("approval") != "pending":
+        errors.append("New content must have approval: pending")
 
     if metadata.get("publish") is not False:
         errors.append("New content must have publish: false")
