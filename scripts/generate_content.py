@@ -122,13 +122,30 @@ created_at: "{today}"
     return output_file
 
 
+def select_topic(topics):
+    """Select a topic deterministically based on the current date."""
+    today = datetime.now().date()
+    index = today.toordinal() % len(topics)
+    return topics[index]
+
+
 def main():
     topics = load_topics()
 
-    # First topic for controlled testing.
-    topic = topics[0]
+    topic = select_topic(topics)
 
-    print(f"Generating content for: {topic['name']}")
+    print(
+        f"Selected topic: {topic['name']} "
+        f"({topic['category']})"
+    )
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    expected_file = OUTPUT_DIR / f"{today}-{slugify(topic['name'])}.md"
+
+    if expected_file.exists():
+        print(f"Content already exists: {expected_file}")
+        print("Skipping generation to avoid a duplicate.")
+        return
 
     post = generate_post(
         topic["name"],
