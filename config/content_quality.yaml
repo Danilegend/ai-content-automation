@@ -1,0 +1,43 @@
+minimum_score: 7
+
+criteria:
+
+  hook:
+    weight: 2
+    description: >
+      Starts with a strong practical hook that makes an IT professional
+      want to continue reading.
+
+  usefulness:
+    weight: 2
+    description: >
+      Provides a concrete technical insight, solution, command, query,
+      configuration, or troubleshooting technique.
+
+  technical_accuracy:
+    weight: 2
+    description: >
+      Technical claims should be accurate and avoid invented commands,
+      APIs, features, or configuration details.
+
+  readability:
+    weight: 1
+    description: >
+      Clear professional English with short paragraphs and easy scanning.
+
+  engagement:
+    weight: 1
+    description: >
+      Encourages useful discussion, experience sharing, or a practical
+      question without using engagement bait.
+
+  originality:
+    weight: 1
+    description: >
+      Avoids generic AI-generated advice and focuses on a specific
+      practical IT problem.
+
+  linkedin_format:
+    weight: 1
+    description: >
+      Appropriate length and formatting for a professional LinkedIn post.
