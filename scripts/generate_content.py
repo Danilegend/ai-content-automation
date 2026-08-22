@@ -1,4 +1,5 @@
 import os
+import argparse
 import re
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +13,7 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 TOPICS_FILE = BASE_DIR / "config" / "topics.yaml"
 OUTPUT_DIR = BASE_DIR / "content" / "drafts"
+WORK_DIR = BASE_DIR / "content" / "work"
 
 MODEL = "gemini-3.6-flash"
 
@@ -93,13 +95,15 @@ Return only the post text.
             time.sleep(delay)
 
 
-def save_post(topic, category, post):
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+def save_post(topic, category, post, output_dir=None):
+    if output_dir is None:
+        output_dir = OUTPUT_DIR
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     today = datetime.now().strftime("%Y-%m-%d")
     slug = slugify(topic)
 
-    output_file = OUTPUT_DIR / f"{today}-{slug}.md"
+    output_file = output_dir / f"{today}-{slug}.md"
 
     content = f"""---
 title: "AI-generated post about {topic}"
@@ -133,6 +137,21 @@ def select_topic(topics):
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Generate AI content"
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=OUTPUT_DIR,
+        help="Directory where the generated post will be saved",
+    )
+
+    args = parser.parse_args()
+
+    output_dir = args.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     topics = load_topics()
 
     topic = select_topic(topics)
@@ -143,7 +162,9 @@ def main():
     )
 
     today = datetime.now().strftime("%Y-%m-%d")
-    expected_file = OUTPUT_DIR / f"{today}-{slugify(topic['name'])}.md"
+    expected_file = (
+        output_dir / f"{today}-{slugify(topic['name'])}.md"
+    )
 
     if expected_file.exists():
         print(f"Content already exists: {expected_file}")
@@ -159,6 +180,7 @@ def main():
         topic["name"],
         topic["category"],
         post,
+        output_dir=output_dir,
     )
 
     print(f"Content generated: {output_file}")
