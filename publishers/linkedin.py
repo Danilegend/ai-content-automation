@@ -53,7 +53,7 @@ class LinkedInPublisher(Publisher):
             "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json",
             "X-Restli-Protocol-Version": "2.0.0",
-            "Linkedin-Version": self.version,
+            "LinkedIn-Version": self.version,
         }
 
         response = requests.post(
