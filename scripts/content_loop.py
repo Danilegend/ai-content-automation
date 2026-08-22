@@ -138,6 +138,8 @@ def main():
                 str(GENERATE_SCRIPT),
                 "--output-dir",
                 str(WORK_DIR),
+                "--attempt",
+                str(attempt),
             ]
         )
 
