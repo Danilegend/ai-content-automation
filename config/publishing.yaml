@@ -1,0 +1,33 @@
+# Global publishing configuration
+
+approval_mode: automatic
+
+platforms:
+
+  linkedin:
+    enabled: true
+    publish: true
+
+  x:
+    enabled: false
+    publish: false
+
+  reddit:
+    enabled: false
+    publish: false
+
+  telegram:
+    enabled: false
+    publish: false
+
+  bluesky:
+    enabled: false
+    publish: false
+
+  mastodon:
+    enabled: false
+    publish: false
+
+  discord:
+    enabled: false
+    publish: false
