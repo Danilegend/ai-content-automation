@@ -63,11 +63,12 @@ def main():
     print(f"Reviewer passed: {passed}")
 
     if passed:
-        metadata["status"] = "approved"
-        metadata["approval"] = "approved"
+        metadata["status"] = "draft"
+        metadata["approval"] = "pending"
+        metadata["publish"] = False
 
         print("✅ QUALITY GATE PASSED")
-        print("Content approved for publishing.")
+        print("Content passed quality review and is ready for validation.")
 
     else:
         metadata["status"] = "rejected"
