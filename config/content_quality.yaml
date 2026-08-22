@@ -1,4 +1,5 @@
 minimum_score: 7
+max_generation_attempts: 3
 
 criteria:
 
