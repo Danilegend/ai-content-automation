@@ -7,7 +7,7 @@ import yaml
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-GENERATE_SCRIPT = BASE_DIR / "scripts" / "generate_content.py"
+CONTENT_LOOP = BASE_DIR / "scripts" / "content_loop.py"
 VALIDATE_SCRIPT = BASE_DIR / "scripts" / "validate_content.py"
 APPROVE_SCRIPT = BASE_DIR / "scripts" / "approve_content.py"
 PUBLISH_SCRIPT = BASE_DIR / "scripts" / "publish.py"
@@ -75,24 +75,27 @@ def main():
 
     print(f"\nApproval mode: {approval_mode}")
 
-    print("\n[1/4] Generating content...")
+    print("\n[1/3] Generating and reviewing content...")
+
     run_command(
         [
             sys.executable,
-            str(GENERATE_SCRIPT),
+            "-m",
+            "scripts.content_loop",
         ]
     )
 
     draft = find_today_draft()
 
     if draft is None:
-        print("\nNo new draft was created today.")
+        print("\nNo approved draft was created today.")
         print("Pipeline finished safely.")
         return
 
-    print(f"\nDraft: {draft.name}")
+    print(f"\nFinal draft: {draft.name}")
 
-    print("\n[2/4] Validating content...")
+    print("\n[2/3] Validating content...")
+
     run_command(
         [
             sys.executable,
@@ -102,7 +105,7 @@ def main():
     )
 
     if approval_mode == "automatic":
-        print("\n[3/4] Automatically approving content...")
+        print("\nApproving quality-approved content...")
 
         run_command(
             [
@@ -112,22 +115,17 @@ def main():
             ]
         )
 
-        print("Enabling publishing...")
         set_publish_flag(
             draft,
             enabled=True,
         )
 
     else:
-        print(
-            "\n[3/4] Manual approval mode."
-        )
-        print(
-            "Publishing will remain disabled."
-        )
+        print("\nManual approval mode.")
+        print("Publishing will remain disabled.")
         return
 
-    print("\n[4/4] Publishing content...")
+    print("\n[3/3] Publishing content...")
     run_command(
         [
             sys.executable,
