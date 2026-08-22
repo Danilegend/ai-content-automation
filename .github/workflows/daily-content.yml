@@ -29,6 +29,9 @@ jobs:
       - name: Generate and validate content
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
+          LINKEDIN_AUTHOR_URN: ${{ secrets.LINKEDIN_AUTHOR_URN }}
+          LINKEDIN_VERSION: ${{ vars.LINKEDIN_VERSION }}
         run: |
           python scripts/daily_pipeline.py
 
