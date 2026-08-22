@@ -146,6 +146,12 @@ def main():
         default=OUTPUT_DIR,
         help="Directory where the generated post will be saved",
     )
+    parser.add_argument(
+        "--attempt",
+        type=int,
+        default=0,
+        help="Generation attempt number",
+    )
 
     args = parser.parse_args()
 
@@ -162,8 +168,15 @@ def main():
     )
 
     today = datetime.now().strftime("%Y-%m-%d")
+    suffix = (
+        f"-attempt-{args.attempt}"
+        if args.attempt > 0
+        else ""
+    )
+
     expected_file = (
-        output_dir / f"{today}-{slugify(topic['name'])}.md"
+        output_dir
+        / f"{today}-{slugify(topic['name'])}{suffix}.md"
     )
 
     if expected_file.exists():
@@ -182,6 +195,17 @@ def main():
         post,
         output_dir=output_dir,
     )
+
+    if args.attempt > 0:
+        attempt_file = (
+            output_dir
+            / f"{today}-{slugify(topic['name'])}"
+            f"-attempt-{args.attempt}.md"
+        )
+
+        if output_file != attempt_file:
+            output_file.rename(attempt_file)
+            output_file = attempt_file
 
     print(f"Content generated: {output_file}")
 
