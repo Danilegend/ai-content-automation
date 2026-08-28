@@ -62,6 +62,12 @@ Requirements:
 - Do not mention that you are an AI.
 - Keep the post suitable for LinkedIn.
 - Aim for approximately 150–250 words.
+When generating Python code examples for networking or API monitoring, 
+do NOT use actual external URLs or http://example.com unless necessary. 
+Instead, use generic placeholders such as:
+- 'https://api.yourcompany.local/health'
+- 'http://127.0.0.1:8080/status'
+- 'http://localhost/health'
 
 Return only the post text.
 """
