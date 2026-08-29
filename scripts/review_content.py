@@ -147,7 +147,7 @@ Return ONLY valid JSON in this exact structure:
     # Model call wrapped with retry backoff function
     response = call_gemini_api(
         client=client,
-        model="gemini-2.5-flash",
+        model="gemini-3.6-flash",
         prompt=prompt,
     )
 
