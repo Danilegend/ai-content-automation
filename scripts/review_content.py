@@ -8,8 +8,13 @@ import yaml
 from dotenv import load_dotenv
 from google import genai
 
-
+# Ensure project root is in sys.path to import utils cleanly
 BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+from scripts.utils import retry_with_backoff
+
 CONFIG_FILE = BASE_DIR / "config" / "content_quality.yaml"
 
 
@@ -45,6 +50,19 @@ def save_post(path: Path, metadata: dict, body: str):
     path.write_text(
         f"---\n{front_matter}---\n\n{body}\n",
         encoding="utf-8",
+    )
+
+
+# Retry helper wrapped around Gemini API call
+@retry_with_backoff(retries=4, backoff_in_seconds=5)
+def call_gemini_api(client, model, prompt):
+    """Executes Gemini API calls with automatic exponential backoff retries."""
+    return client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config={
+            "response_mime_type": "application/json",
+        },
     )
 
 
@@ -126,12 +144,11 @@ Return ONLY valid JSON in this exact structure:
 }}
 """
 
-    response = client.models.generate_content(
-        model="gemini-3.6-flash",
-        contents=prompt,
-        config={
-            "response_mime_type": "application/json",
-        },
+    # Model call wrapped with retry backoff function
+    response = call_gemini_api(
+        client=client,
+        model="gemini-2.5-flash",
+        prompt=prompt,
     )
 
     result = json.loads(response.text)
