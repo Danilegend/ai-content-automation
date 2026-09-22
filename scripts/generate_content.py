@@ -1,33 +1,120 @@
-import os
+#!/usr/bin/env python3
 import argparse
-import re
+import os
+import random
+import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
 import yaml
-from dotenv import load_dotenv
 from google import genai
+from google.genai import errors
 
-load_dotenv()
-
+# Ensure project root is in sys.path
 BASE_DIR = Path(__file__).resolve().parent.parent
-TOPICS_FILE = BASE_DIR / "config" / "topics.yaml"
-OUTPUT_DIR = BASE_DIR / "content" / "drafts"
-WORK_DIR = BASE_DIR / "content" / "work"
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
+# Model configurations
 MODEL = "gemini-3.6-flash"
+FALLBACK_MODEL = "gemini-2.5-flash"
 
 
-def load_topics():
-    with TOPICS_FILE.open("r", encoding="utf-8") as file:
-        return yaml.safe_load(file)["topics"]
+def get_recent_topics(days=10):
+    """Scans existing published posts and drafts to extract recently used topics."""
+    published_dir = BASE_DIR / "content" / "published"
+    drafts_dir = BASE_DIR / "content" / "drafts"
+
+    recent_topics = set()
+    all_files = []
+
+    if published_dir.exists():
+        all_files.extend(list(published_dir.glob("*.md")))
+    if drafts_dir.exists():
+        all_files.extend(list(drafts_dir.glob("*.md")))
+
+    # Sort files by modification time (most recent first)
+    all_files = sorted(all_files, key=lambda p: p.stat().st_mtime, reverse=True)[:days]
+
+    for file_path in all_files:
+        try:
+            content = file_path.read_text(encoding="utf-8")
+            if content.startswith("---"):
+                parts = content.split("---")
+                if len(parts) >= 3:
+                    front_matter = parts[1]
+                    data = yaml.safe_load(front_matter) or {}
+                    if "topic" in data and data["topic"]:
+                        recent_topics.add(str(data["topic"]).strip().lower())
+        except Exception:
+            continue
+
+    return recent_topics
 
 
-def slugify(text):
-    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+def select_topic_and_category(config_path):
+    """Selects a topic and category while excluding recently posted topics."""
+    if not Path(config_path).exists():
+        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+
+    recent_topics = get_recent_topics(days=10)
+    all_candidates = []
+
+    # Handle structure 1: { "categories": [ { "name": "Cloud", "topics": [...] } ] }
+    if "categories" in config and isinstance(config["categories"], list):
+        for cat in config["categories"]:
+            cat_name = cat.get("name", "General")
+            for topic in cat.get("topics", []):
+                all_candidates.append({"topic": topic, "category": cat_name})
+
+    # Handle structure 2: { "topics": [ { "name": "Azure", "category": "Cloud" } ] } or { "topics": { "Cloud": [...] } }
+    elif "topics" in config:
+        topics_data = config["topics"]
+        if isinstance(topics_data, list):
+            for item in topics_data:
+                if isinstance(item, dict):
+                    all_candidates.append({
+                        "topic": item.get("name", item.get("topic")),
+                        "category": item.get("category", "IT")
+                    })
+                elif isinstance(item, str):
+                    all_candidates.append({"topic": item, "category": "IT"})
+        elif isinstance(topics_data, dict):
+            for cat_name, t_list in topics_data.items():
+                if isinstance(t_list, list):
+                    for t in t_list:
+                        all_candidates.append({"topic": t, "category": cat_name})
+
+    # Handle structure 3: Direct dictionary of categories { "Cloud": ["Azure", "AWS"], "DevOps": ["Git"] }
+    elif isinstance(config, dict):
+        for cat_name, t_list in config.items():
+            if isinstance(t_list, list):
+                for t in t_list:
+                    all_candidates.append({"topic": t, "category": cat_name})
+
+    if not all_candidates:
+        # Emergency fallback if config parsing fails to find items
+        all_candidates = [
+            {"topic": "Git and GitHub", "category": "DevOps"},
+            {"topic": "Azure Cloud Security", "category": "Cloud"},
+            {"topic": "Linux Terminal Basics", "category": "SysAdmin"},
+        ]
+
+    # Filter out topics used in the last 10 days
+    fresh_candidates = [
+        c for c in all_candidates if c["topic"].strip().lower() not in recent_topics
+    ]
+
+    selected = random.choice(fresh_candidates if fresh_candidates else all_candidates)
+    return selected["topic"], selected["category"]
 
 
 def generate_post(topic, category):
+    """Generates LinkedIn post content using primary and fallback Gemini models."""
     api_key = os.getenv("GEMINI_API_KEY")
 
     if not api_key:
@@ -72,46 +159,97 @@ Instead, use generic placeholders such as:
 Return only the post text.
 """
 
-    import time
+    max_attempts = 5
+    delays = [10, 20, 40, 80]
 
-    max_attempts = 3
+    models_to_try = [MODEL, FALLBACK_MODEL]
 
-    for attempt in range(1, max_attempts + 1):
-        try:
-            response = client.models.generate_content(
-                model=MODEL,
-                contents=prompt,
-            )
+    for model_index, model_name in enumerate(models_to_try):
+        print(f"Using Gemini model: {model_name}")
 
-            if not response.text:
-                raise RuntimeError("Gemini returned an empty response")
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
 
-            return response.text.strip()
+                if not response or not response.text:
+                    raise RuntimeError("Gemini returned an empty response")
 
-        except Exception as exc:
-            if attempt == max_attempts:
+                return response.text.strip()
+
+            except (errors.ServerError, errors.ClientError) as exc:
+
+                # 429 = quota exhausted.
+                # Don't waste remaining attempts on this model.
+                if (
+                    isinstance(exc, errors.ClientError)
+                    and getattr(exc, "code", None) == 429
+                ):
+                    if model_index < len(models_to_try) - 1:
+                        print(f"[WARNING] {model_name} quota exhausted.")
+                        print(
+                            f"Switching immediately to fallback model: "
+                            f"{FALLBACK_MODEL}"
+                        )
+                        break
+
+                    print("[ERROR] Gemini quota exhausted on all models.")
+                    raise
+
+                # Other server errors, such as 503.
+                if attempt == max_attempts:
+                    if model_index < len(models_to_try) - 1:
+                        print(
+                            f"[WARNING] {model_name} unavailable after "
+                            f"{max_attempts} attempts."
+                        )
+                        print(f"Switching to fallback model: {FALLBACK_MODEL}")
+                        break
+
+                    print("[ERROR] All Gemini models unavailable.")
+                    raise
+
+                delay = delays[attempt - 1]
+
+                print(
+                    f"Gemini server error on {model_name} "
+                    f"(attempt {attempt}/{max_attempts}). "
+                    f"Retrying in {delay} seconds..."
+                )
+                print(f"Reason: {exc}")
+
+                time.sleep(delay)
+
+            except Exception as exc:
+                print(
+                    f"[ERROR] Gemini generation failed using {model_name}: {exc}"
+                )
                 raise
 
-            delay = attempt * 5
-            print(
-                f"Gemini request failed (attempt {attempt}/{max_attempts}). "
-                f"Retrying in {delay} seconds..."
-            )
-            print(f"Reason: {exc}")
-            time.sleep(delay)
 
-
-def save_post(topic, category, post, output_dir=None):
-    if output_dir is None:
-        output_dir = OUTPUT_DIR
-    output_dir.mkdir(parents=True, exist_ok=True)
-
+def save_work_draft(content, topic, category, output_dir, attempt=1):
+    """Saves the generated post as a markdown file with required front matter."""
     today = datetime.now().strftime("%Y-%m-%d")
-    slug = slugify(topic)
+    slug = (
+        topic.lower()
+        .replace(" ", "-")
+        .replace("(", "")
+        .replace(")", "")
+        .replace("/", "-")
+    )
+    filename = f"{today}-{slug}-attempt-{attempt}.md"
 
-    output_file = output_dir / f"{today}-{slug}.md"
+    out_path = Path(output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    file_path = out_path / filename
 
-    content = f"""---
+    # Clean category/topic tags for front matter
+    tag_topic = topic.lower().replace(" ", "").replace("(", "").replace(")", "").replace("-", "")
+    tag_cat = category.lower().replace(" ", "").replace("(", "").replace(")", "").replace("-", "")
+
+    front_matter = f"""---
 title: "AI-generated post about {topic}"
 topic: "{topic}"
 category: "{category}"
@@ -121,99 +259,31 @@ publish: false
 platforms:
   - linkedin
 tags:
-  - "{slug}"
-  - "IT"
-  - "Technology"
-created_at: "{today}"
+  - {tag_cat}
+  - {tag_topic}
+  - tech
+created_at: '{today}'
 ---
 
-{post}
+{content}
 """
-
-    output_file.write_text(content, encoding="utf-8")
-
-    return output_file
-
-
-def select_topic(topics):
-    """Select a topic deterministically based on the current date."""
-    today = datetime.now().date()
-    index = today.toordinal() % len(topics)
-    return topics[index]
-
+    file_path.write_text(front_matter, encoding="utf-8")
+    print(f"Content generated: {file_path}")
+    return file_path
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Generate AI content"
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=OUTPUT_DIR,
-        help="Directory where the generated post will be saved",
-    )
-    parser.add_argument(
-        "--attempt",
-        type=int,
-        default=0,
-        help="Generation attempt number",
-    )
-
+    parser = argparse.ArgumentParser(description="Generate AI LinkedIn Post")
+    parser.add_argument("--output-dir", default="content/work", help="Directory to output draft")
+    parser.add_argument("--attempt", type=int, default=1, help="Attempt number")
     args = parser.parse_args()
 
-    output_dir = args.output_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
+    config_path = BASE_DIR / "config" / "topics.yaml"
+    topic, category = select_topic_and_category(config_path)
 
-    topics = load_topics()
+    print(f"Selected topic: {topic} ({category})")
+    post_content = generate_post(topic, category)
 
-    topic = select_topic(topics)
-
-    print(
-        f"Selected topic: {topic['name']} "
-        f"({topic['category']})"
-    )
-
-    today = datetime.now().strftime("%Y-%m-%d")
-    suffix = (
-        f"-attempt-{args.attempt}"
-        if args.attempt > 0
-        else ""
-    )
-
-    expected_file = (
-        output_dir
-        / f"{today}-{slugify(topic['name'])}{suffix}.md"
-    )
-
-    if expected_file.exists():
-        print(f"Content already exists: {expected_file}")
-        print("Skipping generation to avoid a duplicate.")
-        return
-
-    post = generate_post(
-        topic["name"],
-        topic["category"],
-    )
-
-    output_file = save_post(
-        topic["name"],
-        topic["category"],
-        post,
-        output_dir=output_dir,
-    )
-
-    if args.attempt > 0:
-        attempt_file = (
-            output_dir
-            / f"{today}-{slugify(topic['name'])}"
-            f"-attempt-{args.attempt}.md"
-        )
-
-        if output_file != attempt_file:
-            output_file.rename(attempt_file)
-            output_file = attempt_file
-
-    print(f"Content generated: {output_file}")
+    save_work_draft(post_content, topic, category, args.output_dir, args.attempt)
 
 
 if __name__ == "__main__":
