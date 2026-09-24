@@ -18,7 +18,6 @@ if str(BASE_DIR) not in sys.path:
 
 # Model configurations - Use current active models
 MODEL = "gemini-3.6-flash"
-FALLBACK_MODEL = "gemini-2.0-flash"  # or gemini-1.5-flash
 
 
 def get_recent_topics(days=10):
@@ -113,8 +112,11 @@ def select_topic_and_category(config_path):
     return selected["topic"], selected["category"]
 
 
+MODEL = "gemini-3.6-flash"
+
+
 def generate_post(topic, category):
-    """Generates LinkedIn post content using primary and fallback Gemini models."""
+    """Generates LinkedIn post content using gemini-3.6-flash with resilient backoff."""
     api_key = os.getenv("GEMINI_API_KEY")
 
     if not api_key:
@@ -159,63 +161,48 @@ Instead, use generic placeholders such as:
 Return only the post text.
 """
 
-    max_attempts = 5
-    delays = [10, 20, 40, 80]
+    max_attempts = 7
+    delays = [10, 20, 30, 45, 60, 90, 120]
 
-    models_to_try = [MODEL, FALLBACK_MODEL]
+    print(f"Generating content using Gemini model: {MODEL}")
 
-    for model_index, model_name in enumerate(models_to_try):
-        print(f"Using Gemini model: {model_name}")
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = client.models.generate_content(
+                model=MODEL,
+                contents=prompt,
+            )
 
-        for attempt in range(1, max_attempts + 1):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
+            if not response or not response.text:
+                raise RuntimeError("Gemini returned an empty response")
 
-                if not response or not response.text:
-                    raise RuntimeError("Gemini returned an empty response")
+            return response.text.strip()
 
-                return response.text.strip()
+        except (errors.ServerError, errors.APIError, Exception) as exc:
+            status_code = getattr(
+                exc, "code", getattr(exc, "status_code", None)
+            )
 
-            except (errors.ServerError, errors.ClientError) as exc:
-                status_code = getattr(exc, "code", None)
+            # 429 Quota exhausted
+            if isinstance(exc, errors.ClientError) and status_code == 429:
+                print(f"[ERROR] Quota exhausted (429) on {MODEL}.")
+                raise exc
 
-                # 404 = Model name not available/deprecated. Skip to next model immediately.
-                if isinstance(exc, errors.ClientError) and status_code == 404:
-                    print(f"[WARNING] Model {model_name} returned 404 NOT_FOUND.")
-                    if model_index < len(models_to_try) - 1:
-                        print(f"Switching immediately to fallback model: {FALLBACK_MODEL}")
-                        break
-                    raise
-
-                # 429 = Quota exhausted. Skip to next model immediately.
-                if isinstance(exc, errors.ClientError) and status_code == 429:
-                    print(f"[WARNING] {model_name} quota exhausted (429).")
-                    if model_index < len(models_to_try) - 1:
-                        print(f"Switching immediately to fallback model: {FALLBACK_MODEL}")
-                        break
-                    raise
-
-                # 503 / Transient Server Errors: Retry with backoff
-                if attempt == max_attempts:
-                    if model_index < len(models_to_try) - 1:
-                        print(f"[WARNING] {model_name} unavailable after {max_attempts} attempts.")
-                        print(f"Switching to fallback model: {FALLBACK_MODEL}")
-                        break
-                    print("[ERROR] All Gemini models unavailable.")
-                    raise
-
-                delay = delays[attempt - 1]
-                print(f"Gemini server error on {model_name} (attempt {attempt}/{max_attempts}). Retrying in {delay}s...")
-                time.sleep(delay)
-
-            except Exception as exc:
+            # Final attempt reached
+            if attempt == max_attempts:
                 print(
-                    f"[ERROR] Gemini generation failed using {model_name}: {exc}"
+                    f"[ERROR] Failed after {max_attempts} attempts on {MODEL}: {exc}"
                 )
-                raise
+                raise exc
+
+            delay = delays[attempt - 1]
+            print(
+                f"Gemini API issue on {MODEL} (attempt {attempt}/{max_attempts}). "
+                f"Retrying in {delay} seconds... Reason: {exc}"
+            )
+            time.sleep(delay)
+
+    raise RuntimeError("Gemini content generation failed after all retries.")
 
 
 def save_work_draft(content, topic, category, output_dir, attempt=1):
