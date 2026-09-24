@@ -16,7 +16,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-# Model configurations - Use current active models
 MODEL = "gemini-3.6-flash"
 
 
@@ -33,7 +32,6 @@ def get_recent_topics(days=10):
     if drafts_dir.exists():
         all_files.extend(list(drafts_dir.glob("*.md")))
 
-    # Sort files by modification time (most recent first)
     all_files = sorted(all_files, key=lambda p: p.stat().st_mtime, reverse=True)[:days]
 
     for file_path in all_files:
@@ -63,14 +61,11 @@ def select_topic_and_category(config_path):
     recent_topics = get_recent_topics(days=10)
     all_candidates = []
 
-    # Handle structure 1: { "categories": [ { "name": "Cloud", "topics": [...] } ] }
     if "categories" in config and isinstance(config["categories"], list):
         for cat in config["categories"]:
             cat_name = cat.get("name", "General")
             for topic in cat.get("topics", []):
                 all_candidates.append({"topic": topic, "category": cat_name})
-
-    # Handle structure 2: { "topics": [ { "name": "Azure", "category": "Cloud" } ] } or { "topics": { "Cloud": [...] } }
     elif "topics" in config:
         topics_data = config["topics"]
         if isinstance(topics_data, list):
@@ -87,8 +82,6 @@ def select_topic_and_category(config_path):
                 if isinstance(t_list, list):
                     for t in t_list:
                         all_candidates.append({"topic": t, "category": cat_name})
-
-    # Handle structure 3: Direct dictionary of categories { "Cloud": ["Azure", "AWS"], "DevOps": ["Git"] }
     elif isinstance(config, dict):
         for cat_name, t_list in config.items():
             if isinstance(t_list, list):
@@ -96,14 +89,12 @@ def select_topic_and_category(config_path):
                     all_candidates.append({"topic": t, "category": cat_name})
 
     if not all_candidates:
-        # Emergency fallback if config parsing fails to find items
         all_candidates = [
             {"topic": "Git and GitHub", "category": "DevOps"},
             {"topic": "Azure Cloud Security", "category": "Cloud"},
             {"topic": "Linux Terminal Basics", "category": "SysAdmin"},
         ]
 
-    # Filter out topics used in the last 10 days
     fresh_candidates = [
         c for c in all_candidates if c["topic"].strip().lower() not in recent_topics
     ]
@@ -112,13 +103,8 @@ def select_topic_and_category(config_path):
     return selected["topic"], selected["category"]
 
 
-
-
-MODEL = "gemini-3.6-flash"
-
-
 def generate_post(topic, category):
-    """Generates LinkedIn post content using gemini-3.6-flash with resilient backoff."""
+    """Generates post content via Chat API with 429 quota backoff and 503 retries."""
     api_key = os.getenv("GEMINI_API_KEY")
 
     if not api_key:
@@ -163,48 +149,41 @@ Instead, use generic placeholders such as:
 Return only the post text.
 """
 
-    max_attempts = 7
-    delays = [10, 20, 30, 45, 60, 90, 120]
+    max_attempts = 6
+    delays = [15, 30, 45, 60, 90, 120]
 
-    print(f"Generating content using Gemini model: {MODEL}")
+    print(f"Generating content using Gemini Chat API ({MODEL})...")
 
     for attempt in range(1, max_attempts + 1):
         try:
-            response = client.models.generate_content(
-                model=MODEL,
-                contents=prompt,
-            )
+            chat = client.chats.create(model=MODEL)
+            response = chat.send_message(prompt)
 
             if not response or not response.text:
                 raise RuntimeError("Gemini returned an empty response")
 
             return response.text.strip()
 
-        except (errors.ServerError, errors.APIError, Exception) as exc:
-            status_code = getattr(
-                exc, "code", getattr(exc, "status_code", None)
-            )
+        except (errors.ClientError, errors.ServerError, errors.APIError, Exception) as exc:
+            status_code = getattr(exc, "code", getattr(exc, "status_code", None))
 
-            # 429 Quota exhausted
+            # Handle 429 Quota Exhaustion / Rate Limits
             if isinstance(exc, errors.ClientError) and status_code == 429:
-                print(f"[ERROR] Quota exhausted (429) on {MODEL}.")
-                raise exc
+                wait_time = 45  # Default wait time
+                print(f"[RATE LIMIT 429] Free tier limit reached. Waiting {wait_time}s before attempt {attempt}/{max_attempts}...")
+                time.sleep(wait_time)
+                continue
 
-            # Final attempt reached
+            # Handle 503 Server Demand Spikes
             if attempt == max_attempts:
-                print(
-                    f"[ERROR] Failed after {max_attempts} attempts on {MODEL}: {exc}"
-                )
+                print(f"[ERROR] Failed after {max_attempts} attempts on {MODEL}: {exc}")
                 raise exc
 
             delay = delays[attempt - 1]
-            print(
-                f"Gemini API issue on {MODEL} (attempt {attempt}/{max_attempts}). "
-                f"Retrying in {delay} seconds... Reason: {exc}"
-            )
+            print(f"Gemini API issue on {MODEL} (attempt {attempt}/{max_attempts}). Retrying in {delay}s... Reason: {exc}")
             time.sleep(delay)
 
-    raise RuntimeError("Gemini content generation failed after all retries.")
+    raise RuntimeError("Content generation failed after all retry attempts.")
 
 
 def save_work_draft(content, topic, category, output_dir, attempt=1):
@@ -223,7 +202,6 @@ def save_work_draft(content, topic, category, output_dir, attempt=1):
     out_path.mkdir(parents=True, exist_ok=True)
     file_path = out_path / filename
 
-    # Clean category/topic tags for front matter
     tag_topic = topic.lower().replace(" ", "").replace("(", "").replace(")", "").replace("-", "")
     tag_cat = category.lower().replace(" ", "").replace("(", "").replace(")", "").replace("-", "")
 
@@ -248,6 +226,7 @@ created_at: '{today}'
     file_path.write_text(front_matter, encoding="utf-8")
     print(f"Content generated: {file_path}")
     return file_path
+
 
 def main():
     parser = argparse.ArgumentParser(description="Generate AI LinkedIn Post")
