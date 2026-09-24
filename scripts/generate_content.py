@@ -112,6 +112,8 @@ def select_topic_and_category(config_path):
     return selected["topic"], selected["category"]
 
 
+
+
 MODEL = "gemini-3.6-flash"
 
 
