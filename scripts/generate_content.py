@@ -16,9 +16,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-# Model configurations
+# Model configurations - Use current active models
 MODEL = "gemini-3.6-flash"
-FALLBACK_MODEL = "gemini-2.5-flash"
+FALLBACK_MODEL = "gemini-2.0-flash"  # or gemini-1.5-flash
 
 
 def get_recent_topics(days=10):
@@ -180,46 +180,35 @@ Return only the post text.
                 return response.text.strip()
 
             except (errors.ServerError, errors.ClientError) as exc:
+                status_code = getattr(exc, "code", None)
 
-                # 429 = quota exhausted.
-                # Don't waste remaining attempts on this model.
-                if (
-                    isinstance(exc, errors.ClientError)
-                    and getattr(exc, "code", None) == 429
-                ):
+                # 404 = Model name not available/deprecated. Skip to next model immediately.
+                if isinstance(exc, errors.ClientError) and status_code == 404:
+                    print(f"[WARNING] Model {model_name} returned 404 NOT_FOUND.")
                     if model_index < len(models_to_try) - 1:
-                        print(f"[WARNING] {model_name} quota exhausted.")
-                        print(
-                            f"Switching immediately to fallback model: "
-                            f"{FALLBACK_MODEL}"
-                        )
+                        print(f"Switching immediately to fallback model: {FALLBACK_MODEL}")
                         break
-
-                    print("[ERROR] Gemini quota exhausted on all models.")
                     raise
 
-                # Other server errors, such as 503.
+                # 429 = Quota exhausted. Skip to next model immediately.
+                if isinstance(exc, errors.ClientError) and status_code == 429:
+                    print(f"[WARNING] {model_name} quota exhausted (429).")
+                    if model_index < len(models_to_try) - 1:
+                        print(f"Switching immediately to fallback model: {FALLBACK_MODEL}")
+                        break
+                    raise
+
+                # 503 / Transient Server Errors: Retry with backoff
                 if attempt == max_attempts:
                     if model_index < len(models_to_try) - 1:
-                        print(
-                            f"[WARNING] {model_name} unavailable after "
-                            f"{max_attempts} attempts."
-                        )
+                        print(f"[WARNING] {model_name} unavailable after {max_attempts} attempts.")
                         print(f"Switching to fallback model: {FALLBACK_MODEL}")
                         break
-
                     print("[ERROR] All Gemini models unavailable.")
                     raise
 
                 delay = delays[attempt - 1]
-
-                print(
-                    f"Gemini server error on {model_name} "
-                    f"(attempt {attempt}/{max_attempts}). "
-                    f"Retrying in {delay} seconds..."
-                )
-                print(f"Reason: {exc}")
-
+                print(f"Gemini server error on {model_name} (attempt {attempt}/{max_attempts}). Retrying in {delay}s...")
                 time.sleep(delay)
 
             except Exception as exc:
