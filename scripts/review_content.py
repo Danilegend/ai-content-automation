@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -8,15 +9,21 @@ import yaml
 from dotenv import load_dotenv
 from google import genai
 
+from google.genai import types  # Add at top of file
+
 # Ensure project root is in sys.path to import utils cleanly
 BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from scripts.utils import retry_with_backoff
-
 CONFIG_FILE = BASE_DIR / "config" / "content_quality.yaml"
 
+# --- ADDED: Model fallback configuration ---
+MODEL = "gemini-3.6-flash"
+FALLBACK_MODELS = [
+    "gemini-3.7-flash",
+    "gemini-3.5-flash-lite",
+]
 
 def load_quality_config():
     with CONFIG_FILE.open("r", encoding="utf-8") as file:
@@ -53,17 +60,50 @@ def save_post(path: Path, metadata: dict, body: str):
     )
 
 
-# Retry helper wrapped around Gemini API call
-@retry_with_backoff(retries=4, backoff_in_seconds=5)
-def call_gemini_api(client, model, prompt):
-    """Executes Gemini API calls with automatic exponential backoff retries."""
-    return client.models.generate_content(
-        model=model,
-        contents=prompt,
-        config={
-            "response_mime_type": "application/json",
-        },
-    )
+# --- UPDATED: Robust API caller with fallback models ---
+def call_gemini_api(client, prompt):
+    """Executes Gemini API calls with fallback models and exponential backoff."""
+    models_to_try = [MODEL] + FALLBACK_MODELS
+    max_attempts = 6
+    delays = [15, 30, 45, 60, 90, 120]
+
+    for current_model in models_to_try:
+        print(f"Reviewing content using {current_model}...")
+        
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = client.models.generate_content(
+                    model=current_model,
+                    contents=prompt,
+                    config={
+                        "response_mime_type": "application/json",
+                    },
+                )
+                return response
+            except Exception as exc:
+                status_code = getattr(exc, "code", getattr(exc, "status_code", None))
+
+                # Handle 429 Quota Exhaustion
+                if status_code == 429:
+                    wait_time = 45
+                    print(f"[RATE LIMIT 429] Waiting {wait_time}s before attempt {attempt}/{max_attempts}...")
+                    time.sleep(wait_time)
+                    continue
+
+                # Handle 503 Server Demand Spikes and other errors
+                if attempt == max_attempts:
+                    print(f"[WARNING] Failed after {max_attempts} attempts on {current_model}: {exc}")
+                    if current_model == models_to_try[-1]:
+                        raise exc
+                    else:
+                        print("Switching to fallback model for review...")
+                        break  # Break inner loop to move to next model
+
+                delay = delays[attempt - 1]
+                print(f"Gemini API issue (attempt {attempt}/{max_attempts}). Retrying in {delay}s... Reason: {exc}")
+                time.sleep(delay)
+
+    raise RuntimeError("Review failed after all retry attempts and fallback models.")
 
 
 def review_post(body: str, config: dict):
@@ -74,7 +114,10 @@ def review_post(body: str, config: dict):
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not set")
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+    api_key=api_key,
+    http_options=types.HttpOptions(api_version="v1")
+)
 
     criteria = config["criteria"]
     minimum_score = config["minimum_score"]
@@ -144,12 +187,8 @@ Return ONLY valid JSON in this exact structure:
 }}
 """
 
-    # Model call wrapped with retry backoff function
-    response = call_gemini_api(
-        client=client,
-        model="gemini-3.6-flash",
-        prompt=prompt,
-    )
+    # Call the updated robust API function
+    response = call_gemini_api(client=client, prompt=prompt)
 
     result = json.loads(response.text)
 

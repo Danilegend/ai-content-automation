@@ -10,13 +10,22 @@ from pathlib import Path
 import yaml
 from google import genai
 from google.genai import errors
+from google.genai import types  # Add at top of file
 
 # Ensure project root is in sys.path
 BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-MODEL = "gemini-3.6-flash"
+# --- Model Configuration ---
+MODEL = "gemini-3.5-flash"  # Stable, reliable, and available in both v1beta and v1
+FALLBACK_MODELS = [
+    "gemini-3.5-flash-lite", 
+    "gemini-3.6-flash",
+    "gemini-3.7-flash",
+    "gemini-3.8-flash",
+    "gemini-2.5-flash",  # Very stable fallback
+]
 
 
 def get_recent_topics(days=10):
@@ -104,13 +113,16 @@ def select_topic_and_category(config_path):
 
 
 def generate_post(topic, category):
-    """Generates post content via Chat API with 429 quota backoff and 503 retries."""
+    """Generates post content with fallback models and retries."""
     api_key = os.getenv("GEMINI_API_KEY")
 
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not set")
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+    api_key=api_key,
+    http_options=types.HttpOptions(api_version="v1")
+)
 
     prompt = f"""
 You are an experienced IT professional and technical content creator.
@@ -149,41 +161,49 @@ Instead, use generic placeholders such as:
 Return only the post text.
 """
 
+    # Combine primary and fallback models
+    models_to_try = [MODEL] + FALLBACK_MODELS
     max_attempts = 6
     delays = [15, 30, 45, 60, 90, 120]
 
-    print(f"Generating content using Gemini Chat API ({MODEL})...")
+    for current_model in models_to_try:
+        print(f"Generating content using Gemini Chat API ({current_model})...")
+        
+        for attempt in range(1, max_attempts + 1):
+            try:
+                chat = client.chats.create(model=current_model)
+                response = chat.send_message(prompt)
 
-    for attempt in range(1, max_attempts + 1):
-        try:
-            chat = client.chats.create(model=MODEL)
-            response = chat.send_message(prompt)
+                if not response or not response.text:
+                    raise RuntimeError("Gemini returned an empty response")
 
-            if not response or not response.text:
-                raise RuntimeError("Gemini returned an empty response")
+                return response.text.strip()
 
-            return response.text.strip()
+            except Exception as exc:
+                status_code = getattr(exc, "code", getattr(exc, "status_code", None))
 
-        except (errors.ClientError, errors.ServerError, errors.APIError, Exception) as exc:
-            status_code = getattr(exc, "code", getattr(exc, "status_code", None))
+                # Handle 429 Quota Exhaustion / Rate Limits
+                if status_code == 429:
+                    wait_time = 45
+                    print(f"[RATE LIMIT 429] Free tier limit reached on {current_model}. Waiting {wait_time}s before attempt {attempt}/{max_attempts}...")
+                    time.sleep(wait_time)
+                    continue
 
-            # Handle 429 Quota Exhaustion / Rate Limits
-            if isinstance(exc, errors.ClientError) and status_code == 429:
-                wait_time = 45  # Default wait time
-                print(f"[RATE LIMIT 429] Free tier limit reached. Waiting {wait_time}s before attempt {attempt}/{max_attempts}...")
-                time.sleep(wait_time)
-                continue
+                # Handle 503 Server Demand Spikes
+                if attempt == max_attempts:
+                    print(f"[WARNING] Failed after {max_attempts} attempts on {current_model}: {exc}")
+                    if current_model == models_to_try[-1]:
+                        # If we are on the last model and it failed, raise the error
+                        raise exc
+                    else:
+                        print(f"Switching to fallback model...")
+                        break # Break the attempt loop to move to the next model
 
-            # Handle 503 Server Demand Spikes
-            if attempt == max_attempts:
-                print(f"[ERROR] Failed after {max_attempts} attempts on {MODEL}: {exc}")
-                raise exc
+                delay = delays[attempt - 1]
+                print(f"Gemini API issue on {current_model} (attempt {attempt}/{max_attempts}). Retrying in {delay}s... Reason: {exc}")
+                time.sleep(delay)
 
-            delay = delays[attempt - 1]
-            print(f"Gemini API issue on {MODEL} (attempt {attempt}/{max_attempts}). Retrying in {delay}s... Reason: {exc}")
-            time.sleep(delay)
-
-    raise RuntimeError("Content generation failed after all retry attempts.")
+    raise RuntimeError("Content generation failed after all retry attempts and fallback models.")
 
 
 def save_work_draft(content, topic, category, output_dir, attempt=1):
