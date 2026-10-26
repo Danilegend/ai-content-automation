@@ -1,27 +1,30 @@
 topics:
+  # Technical Topics
   - name: Linux
     category: IT Support
-
   - name: Networking
     category: Networking
-
   - name: Python
     category: Programming
-
   - name: Cybersecurity
     category: Security
-
   - name: Azure
     category: Cloud
-
   - name: Git and GitHub
     category: DevOps
-
   - name: JavaScript
     category: Programming
 
-  - name: IT Support
+  # Human / Work Topics (NEW)
+  - name: IT Career Growth
     category: Career
-
-  - name: AI for IT
-    category: Artificial Intelligence
+  - name: Communication in Tech
+    category: Soft Skills
+  - name: Work-Life Balance in IT
+    category: Lifestyle
+  - name: Learning and Upskilling
+    category: Career
+  - name: Teamwork and Collaboration
+    category: Soft Skills
+  - name: Handling Outages and Stress
+    category: Operations

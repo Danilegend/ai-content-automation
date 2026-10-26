@@ -129,9 +129,8 @@ def review_post(body: str, config: dict):
     )
 
     prompt = f"""
-You are a strict technical content reviewer.
-
-Review the following LinkedIn post.
+You are an expert LinkedIn content editor and IT professional.
+Review the following LinkedIn post for quality and audience fit.
 
 CONTENT:
 {body}
@@ -143,10 +142,13 @@ Minimum passing score: {minimum_score}/10.
 
 For every criterion, give a score from 0 to 10.
 
-Calculate an overall weighted score from 0 to 10.
+SPECIAL RULES FOR SCORING:
+1. "technical_accuracy": If the post is about career, soft skills, or workplace culture (e.g., handling stress, communication, career growth), automatically give this a 10/10. Only deduct points if the post makes a FALSE technical claim.
+2. "originality": Be incredibly strict here. Deduct points if the post uses AI clichés like "Here is a...", "In today's fast-paced world", "Stop doing X", or if it reads like a textbook manual rather than a human talking to a colleague.
+3. "readability": Reward short paragraphs, conversational tone, and first-person ("I", "my team"). Deduct points for overly formal, robotic, or bullet-point-heavy formatting.
 
-Be especially strict about technical accuracy.
-Do not reward content simply because it sounds professional.
+Calculate an overall weighted score from 0 to 10.
+Do not reward content simply because it sounds professional. Reward it if it sounds like a real person sharing a valuable insight.
 
 Return ONLY valid JSON in this exact structure:
 
@@ -154,34 +156,13 @@ Return ONLY valid JSON in this exact structure:
   "overall_score": 0,
   "passed": false,
   "criteria": {{
-    "hook": {{
-      "score": 0,
-      "reason": ""
-    }},
-    "usefulness": {{
-      "score": 0,
-      "reason": ""
-    }},
-    "technical_accuracy": {{
-      "score": 0,
-      "reason": ""
-    }},
-    "readability": {{
-      "score": 0,
-      "reason": ""
-    }},
-    "engagement": {{
-      "score": 0,
-      "reason": ""
-    }},
-    "originality": {{
-      "score": 0,
-      "reason": ""
-    }},
-    "linkedin_format": {{
-      "score": 0,
-      "reason": ""
-    }}
+    "hook": {{ "score": 0, "reason": "" }},
+    "usefulness": {{ "score": 0, "reason": "" }},
+    "technical_accuracy": {{ "score": 0, "reason": "" }},
+    "readability": {{ "score": 0, "reason": "" }},
+    "engagement": {{ "score": 0, "reason": "" }},
+    "originality": {{ "score": 0, "reason": "" }},
+    "linkedin_format": {{ "score": 0, "reason": "" }}
   }},
   "summary": ""
 }}

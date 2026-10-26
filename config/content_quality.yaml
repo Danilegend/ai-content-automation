@@ -6,39 +6,43 @@ criteria:
   hook:
     weight: 2
     description: >
-      Starts with a strong practical hook that makes an IT professional
-      want to continue reading.
+      Starts with a strong, human hook that makes an IT professional
+      want to continue reading. Avoids generic AI openings like
+      "Here is a practical example" or "Stop doing X."
 
   usefulness:
     weight: 2
     description: >
-      Provides a concrete technical insight, solution, command, query,
-      configuration, or troubleshooting technique.
+      Provides a concrete insight. This can be a technical solution, 
+      OR a valuable career lesson, OR a fresh perspective on a 
+      common workplace problem.
 
   technical_accuracy:
     weight: 2
     description: >
-      Technical claims should be accurate and avoid invented commands,
-      APIs, features, or configuration details.
+      Technical claims (if any) should be accurate. Avoid invented commands. 
+      If the post is about career/soft skills, this score is automatically a 10.
 
   readability:
     weight: 1
     description: >
-      Clear professional English with short paragraphs and easy scanning.
+      Clear professional English with short paragraphs. Sounds like a human 
+      talking to a colleague over coffee, not a manual.
 
   engagement:
     weight: 1
     description: >
-      Encourages useful discussion, experience sharing, or a practical
-      question without using engagement bait.
+      Ends with a genuine question that invites real discussion, 
+      NOT engagement bait like "What do you think?" or "Agree?"
 
   originality:
-    weight: 1
+    weight: 2
     description: >
-      Avoids generic AI-generated advice and focuses on a specific
-      practical IT problem.
+      CRITICAL: Avoids generic AI-generated advice. Must have a specific, 
+      unique angle. If it sounds like a ChatGPT output, score it a 0.
 
   linkedin_format:
     weight: 1
     description: >
-      Appropriate length and formatting for a professional LinkedIn post.
+      Appropriate length and formatting. Avoids overly structured lists 
+      unless absolutely necessary for a tutorial.

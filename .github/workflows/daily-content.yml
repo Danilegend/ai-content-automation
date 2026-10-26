@@ -3,9 +3,10 @@ name: Daily AI Content
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 7 * * *"
-    # Fallback backup trigger at 12:00 UTC (3:00 PM Finland Time)
-    - cron: "0 12 * * *"
+    # Main trigger: Mon, Wed, Fri, Sat at 07:00 UTC (10:00 AM Finland Time)
+    - cron: "0 7 * * 1,3,5,6"
+    # Fallback backup trigger: 12:00 UTC (3:00 PM Finland Time) on the same days
+    - cron: "0 12 * * 1,3,5,6"
 
 permissions:
   contents: write
@@ -30,6 +31,12 @@ jobs:
           pip install -r requirements.txt
 
       - name: Generate and validate content
+        uses: nick-invision/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          retry_wait_seconds: 300
+          command: python -u scripts/daily_pipeline.py
         env:
           PYTHONUNBUFFERED: "1"
           PYTHONPATH: "."
@@ -40,8 +47,6 @@ jobs:
           LINKEDIN_VERSION: "202607"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          python -u scripts/daily_pipeline.py
 
       - name: Commit published posts & logs back to repo
         if: always()

@@ -7,10 +7,15 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+
 import yaml
 from google import genai
 from google.genai import errors
-from google.genai import types  # Add at top of file
+from google.genai import types
+
+# --- ADD THESE TWO LINES ---
+from dotenv import load_dotenv
+load_dotenv()
 
 # Ensure project root is in sys.path
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -18,13 +23,13 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 # --- Model Configuration ---
-MODEL = "gemini-3.5-flash"  # Stable, reliable, and available in both v1beta and v1
+MODEL = "gemini-3.5-flash"
 FALLBACK_MODELS = [
     "gemini-3.5-flash-lite", 
     "gemini-3.6-flash",
     "gemini-3.7-flash",
     "gemini-3.8-flash",
-    "gemini-2.5-flash",  # Very stable fallback
+    "gemini-2.5-flash",
 ]
 
 
@@ -86,11 +91,6 @@ def select_topic_and_category(config_path):
                     })
                 elif isinstance(item, str):
                     all_candidates.append({"topic": item, "category": "IT"})
-        elif isinstance(topics_data, dict):
-            for cat_name, t_list in topics_data.items():
-                if isinstance(t_list, list):
-                    for t in t_list:
-                        all_candidates.append({"topic": t, "category": cat_name})
     elif isinstance(config, dict):
         for cat_name, t_list in config.items():
             if isinstance(t_list, list):
@@ -112,62 +112,13 @@ def select_topic_and_category(config_path):
     return selected["topic"], selected["category"]
 
 
-def generate_post(topic, category):
-    """Generates post content with fallback models and retries."""
-    api_key = os.getenv("GEMINI_API_KEY")
-
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY is not set")
-
-    client = genai.Client(
-    api_key=api_key,
-    http_options=types.HttpOptions(api_version="v1")
-)
-
-    prompt = f"""
-You are an experienced IT professional and technical content creator.
-
-Create one high-quality social media post about:
-
-Topic: {topic}
-Category: {category}
-
-Audience:
-- IT support technicians
-- system administrators
-- developers
-- networking professionals
-- people learning IT
-
-Requirements:
-- Be technically useful and accurate.
-- Use a professional but approachable tone.
-- Start with a strong hook.
-- Give practical information rather than generic motivation.
-- Include one useful example, command, technique, or real-world scenario when appropriate.
-- End with a short question that encourages discussion.
-- Include 3 to 5 relevant hashtags.
-- Do not invent statistics or claims.
-- Do not mention that you are an AI.
-- Keep the post suitable for LinkedIn.
-- Aim for approximately 150–250 words.
-When generating Python code examples for networking or API monitoring, 
-do NOT use actual external URLs or http://example.com unless necessary. 
-Instead, use generic placeholders such as:
-- 'https://api.yourcompany.local/health'
-- 'http://127.0.0.1:8080/status'
-- 'http://localhost/health'
-
-Return only the post text.
-"""
-
-    # Combine primary and fallback models
-    models_to_try = [MODEL] + FALLBACK_MODELS
+def make_api_call(client, prompt, models_to_try):
+    """Handles the API call, rate limits, and fallbacks."""
     max_attempts = 6
     delays = [15, 30, 45, 60, 90, 120]
 
     for current_model in models_to_try:
-        print(f"Generating content using Gemini Chat API ({current_model})...")
+        print(f"  -> Calling Gemini API ({current_model})...")
         
         for attempt in range(1, max_attempts + 1):
             try:
@@ -182,28 +133,103 @@ Return only the post text.
             except Exception as exc:
                 status_code = getattr(exc, "code", getattr(exc, "status_code", None))
 
-                # Handle 429 Quota Exhaustion / Rate Limits
                 if status_code == 429:
                     wait_time = 45
-                    print(f"[RATE LIMIT 429] Free tier limit reached on {current_model}. Waiting {wait_time}s before attempt {attempt}/{max_attempts}...")
+                    print(f"  [RATE LIMIT 429] Waiting {wait_time}s...")
                     time.sleep(wait_time)
                     continue
 
-                # Handle 503 Server Demand Spikes
                 if attempt == max_attempts:
-                    print(f"[WARNING] Failed after {max_attempts} attempts on {current_model}: {exc}")
                     if current_model == models_to_try[-1]:
-                        # If we are on the last model and it failed, raise the error
                         raise exc
                     else:
-                        print(f"Switching to fallback model...")
-                        break # Break the attempt loop to move to the next model
+                        break 
 
                 delay = delays[attempt - 1]
-                print(f"Gemini API issue on {current_model} (attempt {attempt}/{max_attempts}). Retrying in {delay}s... Reason: {exc}")
+                print(f"  Gemini API issue (attempt {attempt}). Retrying in {delay}s...")
                 time.sleep(delay)
 
-    raise RuntimeError("Content generation failed after all retry attempts and fallback models.")
+    raise RuntimeError("Content generation failed after all attempts.")
+
+def generate_post(topic, category):
+    """Generates post content using a TWO-STAGE process (Strategist + Writer)."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not set")
+
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(api_version="v1")
+    )
+
+    models_to_try = [MODEL] + FALLBACK_MODELS
+
+    # ==========================================
+    # STAGE 1: THE STRATEGIST
+    # ==========================================
+    post_styles = [
+        "A personal story / lesson learned (First person: 'I', 'my team')",
+        "An unpopular opinion or myth-busting (Direct, slightly provocative)",
+        "A behind-the-scenes look at how something actually works (Analytical)",
+        "A tactical checklist or 'how-to' disguised as a story (Practical)",
+        "A career observation (Objective, third-person advice)"
+    ]
+    selected_style = random.choice(post_styles)
+
+    strategist_prompt = f"""
+    You are a Senior Content Strategist for a tech professional's LinkedIn profile.
+    The target audience is early-to-mid career IT professionals.
+    
+    Your task is to brainstorm a highly engaging angle for a post about:
+    Topic: {topic}
+    Category: {category}
+
+    For this post, you MUST use this specific format/style: 
+    **{selected_style}**
+
+    DO NOT write the post yet. Just answer these questions in 2-3 sentences:
+    1. What is a common frustration or misconception related to this topic?
+    2. What is a specific, non-obvious lesson someone could learn from it?
+    3. Give a 1-sentence "hook" that fits the requested style and does NOT sound like an AI.
+    """
+
+    print("Stage 1: Thinking of a human angle...")
+    # THIS IS THE MISSING LINE THAT CREATES THE 'angle' VARIABLE
+    angle = make_api_call(client, strategist_prompt, models_to_try) 
+    print(f"\nAngle selected:\n{angle}\n")
+
+    # ==========================================
+    # STAGE 2: THE WRITER
+    # ==========================================
+    writer_prompt = f"""
+    You are an experienced IT professional writing a LinkedIn post.
+    
+    Topic: {topic}
+    Category: {category}
+    
+    Here is the strategic angle you MUST use:
+    ---
+    {angle}
+    ---
+
+    Requirements:
+    - The requested style for this post is: **{selected_style}**
+    - Tone: Conversational, professional, and slightly opinionated. Like a colleague sharing wisdom over coffee.
+    - DO NOT use AI clichés. 
+      * BANNED OPENINGS: "Here is...", "Stop doing X...", "The fastest way to...", "In the world of...", "I spent my first..."
+      * BANNED FORMAT: Do not use bulleted lists with bold headers. Write in paragraphs.
+    - DO NOT include code blocks or terminal commands unless they are absolutely necessary.
+    - Instead of a generic question like "What do you think?", ask a specific question.
+    - Include 3 to 5 relevant hashtags.
+    - Keep it under 250 words.
+
+    Return ONLY the post text. Do not include quotes around the output.
+    """
+
+    print("Stage 2: Writing the human-sounding post...")
+    post_content = make_api_call(client, writer_prompt, models_to_try)
+    
+    return post_content
 
 
 def save_work_draft(content, topic, category, output_dir, attempt=1):
@@ -257,11 +283,11 @@ def main():
     config_path = BASE_DIR / "config" / "topics.yaml"
     topic, category = select_topic_and_category(config_path)
 
-    print(f"Selected topic: {topic} ({category})")
+    print(f"\nSelected topic: {topic} ({category})")
     post_content = generate_post(topic, category)
 
     save_work_draft(post_content, topic, category, args.output_dir, args.attempt)
-
+    print("\n✅ Generation complete.")
 
 if __name__ == "__main__":
     main()
