@@ -17,6 +17,7 @@ VALIDATE_SCRIPT = BASE_DIR / "scripts" / "validate_content.py"
 APPROVE_SCRIPT = BASE_DIR / "scripts" / "approve_content.py"
 
 DRAFTS_DIR = BASE_DIR / "content" / "drafts"
+PUBLISHED_DIR = BASE_DIR / "content" / "published"
 CONFIG_FILE = BASE_DIR / "config" / "publishing.yaml"
 
 
@@ -40,6 +41,19 @@ def load_config():
         return {"approval_mode": "automatic"}
     with CONFIG_FILE.open("r", encoding="utf-8") as file:
         return yaml.safe_load(file) or {}
+
+
+def check_if_already_posted_today():
+    """Checks if a post was already published today to prevent double posting."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    if not PUBLISHED_DIR.exists():
+        return None
+        
+    todays_posts = list(PUBLISHED_DIR.glob(f"{today}-*.md"))
+    if len(todays_posts) > 0:
+        return todays_posts[0].name
+    return None
 
 
 def find_today_draft():
@@ -77,6 +91,15 @@ def main():
     print("=" * 60)
 
     try:
+        # --- DOUBLE POST GUARD ---
+        # This stops the backup trigger (12:00 PM) if the main trigger (7:00 AM) already worked.
+        already_posted = check_if_already_posted_today()
+        if already_posted:
+            print(f"\n🛑 Pipeline stopped: A post was already published today ({already_posted}).")
+            print("This is likely the backup trigger. Skipping to prevent duplicates.")
+            return
+        # -------------------------
+
         config = load_config()
         # Allow environment variable to override yaml config (critical for GitHub Actions)
         approval_mode = os.getenv(
